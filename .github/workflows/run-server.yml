@@ -1,0 +1,51 @@
+name: Run Chat Server
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start server in background
+        run: |
+          python app.py > server.log 2>&1 &
+          for i in $(seq 1 15); do
+            if curl -s http://127.0.0.1:5000/ > /dev/null; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server failed to start"
+          cat server.log
+          exit 1
+
+      - name: Test chat endpoint
+        run: |
+          RESPONSE=$(curl -s -X POST http://127.0.0.1:5000/api/chat \
+            -H "Content-Type: application/json" \
+            -d '{"prompt": "Halo, siapa kamu?"}')
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | python -c "import sys, json; d = json.load(sys.stdin); assert 'answer' in d, d"
+
+      - name: Show server log
+        if: always()
+        run: cat server.log || true
